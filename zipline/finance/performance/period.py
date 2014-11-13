@@ -118,10 +118,6 @@ class PerformancePeriod(object):
         self.keep_transactions = keep_transactions
         self.keep_orders = keep_orders
 
-        # Arrays for quick calculations of positions value
-        self._position_amounts = pd.Series()
-        self._position_last_sale_prices = pd.Series()
-
         self.calculate_performance()
 
         # An object to recycle via assigning new values
@@ -145,30 +141,12 @@ class PerformancePeriod(object):
         self.orders_by_modified = defaultdict(OrderedDict)
         self.orders_by_id = OrderedDict()
 
-    def set_position_amount(self, sid, amount):
-        try:
-            self._position_amounts[sid] = amount
-        except KeyError:
-            self._position_amounts = \
-                self._position_amounts.append(pd.Series({sid: amount}))
-
-    def set_position_last_sale_price(self, sid, last_sale_price):
-        try:
-            self._position_last_sale_prices[sid] = last_sale_price
-        except KeyError:
-            self._position_last_sale_prices = \
-                self._position_last_sale_prices.append(
-                    pd.Series({sid: last_sale_price}))
-
     def handle_split(self, split):
         if split.sid in self.positions:
             # Make the position object handle the split. It returns the
             # leftover cash from a fractional share, if there is any.
-            position = self.positions[split.sid]
+            position = self.positions.loc[split.sid]
             leftover_cash = position.handle_split(split)
-            self.set_position_amount(split.sid, position.amount)
-            self.set_position_last_sale_price(split.sid,
-                                              position.last_sale_price)
 
             if leftover_cash > 0:
                 self.handle_cash_payment(leftover_cash)
@@ -226,12 +204,9 @@ class PerformancePeriod(object):
         for _, row in stock_payments.iterrows():
             stock = row['payment_sid']
             share_count = row['share_count']
-            position = self.positions[stock]
+            position = self.positions.loc[stock]
 
-            position.amount += share_count
-            self.set_position_amount(stock, position.amount)
-            self.set_position_last_sale_price(stock,
-                                              position.last_sale_price)
+            position['amount'] += share_count
 
         # Recalculate performance after applying dividend benefits.
         self.calculate_performance()
@@ -268,6 +243,9 @@ class PerformancePeriod(object):
     def calculate_performance(self):
         self.ending_value = self.calculate_positions_value()
 
+        if self.ending_value is None:
+            self.ending_value = 0.0
+
         total_at_start = self.starting_cash + self.starting_value
         self.ending_cash = self.starting_cash + self.period_cash_flow
         total_at_end = self.ending_cash + self.ending_value
@@ -296,15 +274,13 @@ class PerformancePeriod(object):
         pos = self.positions.loc[sid]
 
         if amount is not None:
-            pos.amount = amount
-            self.set_position_amount(sid, amount)
+            pos['amount'] = amount
         if last_sale_price is not None:
-            pos.last_sale_price = last_sale_price
-            self.set_position_last_sale_price(sid, last_sale_price)
+            pos['last_sale_price'] = last_sale_price
         if last_sale_date is not None:
-            pos.last_sale_date = last_sale_date
+            pos['last_sale_date'] = last_sale_date
         if cost_basis is not None:
-            pos.cost_basis = cost_basis
+            pos['cost_basis'] = cost_basis
 
     def execute_transaction(self, txn):
         # Update Position
@@ -322,8 +298,6 @@ class PerformancePeriod(object):
             position['cost_basis'] = 0.0
             position['last_sale_price'] = 0.0
         update_position(position, txn)
-        self.set_position_amount(txn.sid, position['amount'])
-        self.set_position_last_sale_price(txn.sid, position['last_sale_price'])
 
         self.period_cash_flow -= txn.price * txn.amount
 
@@ -331,7 +305,7 @@ class PerformancePeriod(object):
             self.processed_transactions[txn.dt].append(txn)
 
     def calculate_positions_value(self):
-        return np.dot(self._position_amounts, self._position_last_sale_prices)
+        return np.dot(self.positions.amount, self.positions.last_sale_price)
 
     def update_last_sale(self, event):
         if event.sid not in self.positions:
