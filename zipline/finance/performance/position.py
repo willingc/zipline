@@ -39,9 +39,40 @@ from math import (
 )
 
 import logbook
+import pandas as pd
 import zipline.protocol as zp
 
 log = logbook.Logger('Performance')
+
+
+def update_position(pos, txn):
+    total_shares = pos['amount'] + txn.amount
+
+    if total_shares == 0:
+        pos['cost_basis'] = 0.0
+    else:
+        prev_direction = copysign(1, pos['amount'])
+        txn_direction = copysign(1, txn.amount)
+
+        if prev_direction != txn_direction:
+            # we're covering a short or closing a position
+            if abs(txn.amount) > abs(pos['amount']):
+                # we've closed the position and gone short
+                # or covered the short position and gone long
+                pos['cost_basis'] = txn.price
+        else:
+            prev_cost = pos['cost_basis'] * pos['amount']
+            txn_cost = txn.amount * txn.price
+            total_cost = prev_cost + txn_cost
+            pos.cost_basis = total_cost / total_shares
+
+        # Update the last sale price if txn is
+        # best data we have so far
+        if pd.isnull(pos['last_sale_date']) or txn.dt > pos['last_sale_date']:
+            pos['last_sale_price'] = txn.price
+            pos['last_sale_date'] = txn.dt
+
+    pos['amount'] = total_shares
 
 
 class Position(object):

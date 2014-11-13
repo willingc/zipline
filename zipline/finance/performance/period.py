@@ -82,7 +82,8 @@ from collections import (
 from six import iteritems, itervalues
 
 import zipline.protocol as zp
-from . position import positiondict
+
+from . position import update_position
 
 log = logbook.Logger('Performance')
 
@@ -106,7 +107,11 @@ class PerformancePeriod(object):
         self.pnl = 0.0
 
         # sid => position object
-        self.positions = positiondict()
+        self.positions = pd.DataFrame(
+            columns=['amount',
+                     'cost_basis',
+                     'last_sale_price',
+                     'last_sale_date'])
         self.ending_cash = starting_cash
         # rollover initializes a number of self's attributes:
         self.rollover()
@@ -288,7 +293,7 @@ class PerformancePeriod(object):
 
     def update_position(self, sid, amount=None, last_sale_price=None,
                         last_sale_date=None, cost_basis=None):
-        pos = self.positions[sid]
+        pos = self.positions.loc[sid]
 
         if amount is not None:
             pos.amount = amount
@@ -307,10 +312,18 @@ class PerformancePeriod(object):
 
         # NOTE: self.positions has defaultdict semantics, so this will create
         # an empty position if one does not already exist.
-        position = self.positions[txn.sid]
-        position.update(txn)
-        self.set_position_amount(txn.sid, position.amount)
-        self.set_position_last_sale_price(txn.sid, position.last_sale_price)
+        try:
+            position = self.positions.loc[txn.sid]
+        except KeyError:
+            self.positions = self.positions.reindex(
+                self.positions.index.tolist() + [txn.sid])
+            position = self.positions.loc[txn.sid]
+            position['amount'] = 0
+            position['cost_basis'] = 0.0
+            position['last_sale_price'] = 0.0
+        update_position(position, txn)
+        self.set_position_amount(txn.sid, position['amount'])
+        self.set_position_last_sale_price(txn.sid, position['last_sale_price'])
 
         self.period_cash_flow -= txn.price * txn.amount
 
@@ -462,9 +475,9 @@ class PerformancePeriod(object):
 
         positions = self._positions_store
 
-        for sid, pos in iteritems(self.positions):
+        for sid, pos in self.positions.iterrows():
 
-            if pos.amount == 0:
+            if pos['amount'] == 0:
                 # Clear out the position if it has become empty since the last
                 # time get_positions was called.  Catching the KeyError is
                 # faster than checking `if sid in positions`, and this can be
@@ -478,14 +491,14 @@ class PerformancePeriod(object):
             # Note that this will create a position if we don't currently have
             # an entry
             position = positions[sid]
-            position.amount = pos.amount
-            position.cost_basis = pos.cost_basis
-            position.last_sale_price = pos.last_sale_price
+            position.amount = pos['amount']
+            position.cost_basis = pos['cost_basis']
+            position.last_sale_price = pos['last_sale_price']
         return positions
 
     def get_positions_list(self):
         positions = []
-        for sid, pos in iteritems(self.positions):
-            if pos.amount != 0:
+        for sid, pos in self.positions.iterrows():
+            if pos['amount'] != 0:
                 positions.append(pos.to_dict())
         return positions
