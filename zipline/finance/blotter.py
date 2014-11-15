@@ -117,6 +117,7 @@ class Blotter(object):
         return order.id
 
     def cancel(self, order_id):
+        log.info("We just called blotter cancel")
         if order_id not in self.orders:
             return
 
@@ -334,6 +335,7 @@ class Order(object):
         self._status = status
 
     def cancel(self):
+        log.info("Marking the order.status as cancelled in blotter")
         self.status = ORDER_STATUS.CANCELLED
 
     def reject(self, reason=''):
