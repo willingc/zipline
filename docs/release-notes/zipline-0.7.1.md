@@ -5,6 +5,10 @@
 * Fix a bug where the reported returns could sharply dip for random periods of
   time. [PR378](https://github.com/quantopian/zipline/pull/378)
 
+* Ignore SIDs that contain NaNs and have not been traded yet in
+  DataFrame sources.
+  [PR468](https://github.com/quantopian/zipline/pull/463)
+
 ## Enhancements (ENH)
 
 * Account object: Adds an account object to conext to track information about
