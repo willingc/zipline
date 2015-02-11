@@ -83,12 +83,11 @@ class AlgorithmSimulator(object):
         return self.EMISSION_TO_PERF_KEY_MAP[
             self.algo.perf_tracker.emission_rate]
 
-    def process_event(self, event):
-        process_trade = self.algo.blotter.process_trade
-        for txn, order in process_trade(event):
-            self.algo.perf_tracker.process_event(txn)
-            self.algo.perf_tracker.process_event(order)
-        self.algo.perf_tracker.process_event(event)
+    def process_event(self, blotter_process_trade, perf_process_event, event):
+        for txn, order in blotter_process_trade(event):
+            perf_process_event(txn)
+            perf_process_event(order)
+        perf_process_event(event)
 
     def transform(self, stream_in):
         """
@@ -210,6 +209,10 @@ class AlgorithmSimulator(object):
         if instant_fill:
             events_to_be_processed = []
 
+        perf_process_event = self.algo.perf_tracker.process_event
+        blotter_process_trade = self.algo.blotter.process_trade
+        process_event = self.process_event
+
         for event in snapshot:
 
             if event.type == DATASOURCE_TYPE.TRADE:
@@ -226,7 +229,9 @@ class AlgorithmSimulator(object):
                 self.algo.blotter.process_split(event)
 
             if not instant_fill:
-                self.process_event(event)
+                process_event(blotter_process_trade,
+                              perf_process_event,
+                              event)
             else:
                 events_to_be_processed.append(event)
 
@@ -240,7 +245,9 @@ class AlgorithmSimulator(object):
             # process the event stream to fill user orders based on the events
             # from this snapshot.
             for event in events_to_be_processed:
-                self.process_event(event)
+                process_event(blotter_process_trade,
+                              perf_process_event,
+                              event)
 
         if benchmark_event_occurred:
             return self.get_message(dt)
